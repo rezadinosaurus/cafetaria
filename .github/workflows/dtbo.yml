@@ -1,0 +1,49 @@
+name: build DTB/DTBO
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: { description: 'Repo', required: true, default: 'rezadinosaurus/butterflies_xiaomi_sm8250' }
+      branch: { description: 'Branch', required: true, default: 'lineage-latte' }
+      defconfig: { description: 'Defconfig', required: true, default: 'vendor/alioth_defconfig' }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.inputs.repository }}
+        ref: ${{ github.event.inputs.branch }}
+        submodules: recursive
+
+    - name: Setup
+      run: |
+        sudo apt-get update && sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python3 python-is-python3 wget
+
+        mkdir -p tc
+        wget -qO- https://github.com/moonooen/AOSP20/releases/download/v1.0/clang-r547379-qssi.tar.gz | tar -xz -C tc
+
+    - name: Build DTB/DTBO
+      run: |
+        export PATH=$PWD/tc/bin:$PATH
+        export ARCH=arm64
+        ARGS="O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm STRIP=llvm-strip OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1"
+
+        make $ARGS ${{ github.event.inputs.defconfig }}
+        make -j$(nproc) $ARGS dtbs dtbo.img
+        make $ARGS dtb.img
+
+    - name: Collect Output
+      run: |
+        mkdir -p output
+        [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img output/
+        [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img output/
+        find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} output/ \; 2>/dev/null || true
+        find out/arch/arm64/boot/dts/ -name "*.dtbo" -exec cp {} output/ \; 2>/dev/null || true
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: DTB-DTBO-${{ github.run_id }}
+        path: output/
