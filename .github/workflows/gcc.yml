@@ -1,4 +1,4 @@
-name: gcc
+name: gcc build
 
 on:
   workflow_dispatch:
@@ -7,14 +7,6 @@ on:
       branch: { description: 'Branch', required: true, default: 'lineage-latte' }
       defconfig: { description: 'Defconfig', required: true, default: 'vendor/alioth_defconfig' }
       kernelsu_branch: { description: 'KSU Branch', required: false, default: 'master' }
-      toolchain:
-        description: 'Toolchain'
-        required: true
-        default: 'clang'
-        type: choice
-        options:
-          - clang
-          - gcc
 
 env:
   CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -36,7 +28,7 @@ jobs:
       run: |
         curl -s -X POST "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendMessage" \
         -d chat_id="${{ env.CHAT_ID }}" \
-        -d text="build is starting sayangg: ${{ github.event.inputs.repository }} [${{ github.event.inputs.branch }}] (${{ github.event.inputs.toolchain }})"
+        -d text="build is starting sayangg: ${{ github.event.inputs.repository }} [${{ github.event.inputs.branch }}]"
 
     - name: Setup and Build
       run: |
@@ -47,30 +39,13 @@ jobs:
         echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
 
         mkdir -p tc
-
-        if [ "${{ github.event.inputs.toolchain }}" = "gcc" ]; then
-          echo "Using GCC toolchain (eva-gcc)"
-          wget -q "https://github.com/mvaisakh/gcc-build/releases/download/31052026/eva-gcc-arm64-31052026.xz" -O tc/gcc.tar.xz
-          mkdir -p tc/gcc
-          tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
-          export PATH=$PWD/tc/gcc/bin:$PATH
-          GCC_PREFIX=$(find $PWD/tc/gcc/bin -name '*-gcc' | head -n1 | sed 's/.*\///;s/gcc$//')
-          echo "Detected GCC prefix: $GCC_PREFIX"
-        else
-          echo "Using clang toolchain"
-          wget -qO- https://github.com/moonooen/AOSP20/releases/download/v1.0/clang-r547379-qssi.tar.gz | tar -xz -C tc
-          export PATH=$PWD/tc/bin:$PATH
-        fi
+        wget -qO- https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz | tar -xJ -C tc
+        export PATH=$PWD/tc/bin:$PATH
 
         curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
 
         export ARCH=arm64
-
-        if [ "${{ github.event.inputs.toolchain }}" = "gcc" ]; then
-          ARGS="O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
-        else
-          ARGS="O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm STRIP=llvm-strip OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1"
-        fi
+        ARGS="O=out ARCH=arm64 CC=aarch64-elf-gcc LD=aarch64-elf-ld.bfd AR=aarch64-elf-ar NM=aarch64-elf-nm STRIP=aarch64-elf-strip OBJCOPY=aarch64-elf-objcopy OBJDUMP=aarch64-elf-objdump CROSS_COMPILE=aarch64-elf- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
 
         make $ARGS ${{ github.event.inputs.defconfig }}
         make -j$(nproc) $ARGS dtbs dtboimage || true
