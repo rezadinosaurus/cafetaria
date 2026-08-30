@@ -1,4 +1,4 @@
-name: gcc build
+name: gcc build 
 
 on:
   workflow_dispatch:
@@ -40,17 +40,9 @@ jobs:
 
         mkdir -p tc
         wget -q "https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz" -O gcc.xz
-
-        echo "== checking downloaded file =="
-        file gcc.xz
-        ls -lh gcc.xz
-
         tar -xf gcc.xz -C tc
-
-        echo "== toolchain bin contents =="
-        ls tc/bin
-
-        export PATH=$PWD/tc/bin:$PATH
+        TC_BIN=$(dirname "$(find tc -type f -name 'aarch64-elf-gcc' | head -1)")
+        export PATH="$TC_BIN:$PATH"
 
         curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
 
@@ -66,15 +58,12 @@ jobs:
           ZIP_NAME="imell-$BUILD_TIME.zip"
           mkdir -p dts_output
           find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} ./ \;
-
           for f in *.dtb; do
             [ -f "$f" ] && dtc -I dtb -O dts -o "dts_output/${f}.dts" "$f"
           done
-
           [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img ./
           [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img ./
           cp out/arch/arm64/boot/Image ./
-
           zip -r "$ZIP_NAME" Image *.dtb *.img dts_output/
           echo "FINAL_ZIP=$ZIP_NAME" >> $GITHUB_ENV
         fi
