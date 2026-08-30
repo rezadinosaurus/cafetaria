@@ -32,27 +32,24 @@ jobs:
 
     - name: Setup and Build
       run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip python3 python-is-python3 git wget curl device-tree-compiler zstd
+        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip gcc-arm-linux-gnueabi python3 python-is-python3 git wget curl device-tree-compiler zstd xz-utils
 
         export TZ="Asia/Jakarta"
         BUILD_TIME=$(date +'%H%M-%d%m%y')
         echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
 
-        mkdir -p tc
-        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz" -O gcc.xz
-        tar -xf gcc.xz -C tc
-        find tc -maxdepth 4
-        TC_GCC=$(find tc -type f -name '*aarch64*gcc' | head -1)
-        [ -z "$TC_GCC" ] && { echo "toolchain gcc not found after extract"; exit 1; }
-        TC_BIN=$(dirname "$TC_GCC")
-        echo "TC_BIN=$TC_BIN"
-        export PATH="$TC_BIN:$PATH"
-        "$TC_GCC" --version
+        mkdir -p tc/gcc
+        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz" -O tc/gcc.tar.xz
+        tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
+        export PATH=$PWD/tc/gcc/bin:$PATH
+
+        GCC_PREFIX=$(find $PWD/tc/gcc/bin -name '*-gcc' | head -n1 | sed 's/.*\///;s/gcc$//')
+        echo "Detected GCC prefix: $GCC_PREFIX"
 
         curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
 
         export ARCH=arm64
-        ARGS="O=out ARCH=arm64 CROSS_COMPILE=aarch64-elf- CROSS_COMPILE_ARM32=arm-eabi-"
+        ARGS="O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- KCFLAGS=-Wno-error"
 
         make $ARGS ${{ github.event.inputs.defconfig }}
         make -j$(nproc) $ARGS dtbs dtboimage || true
@@ -63,12 +60,15 @@ jobs:
           ZIP_NAME="imell-$BUILD_TIME.zip"
           mkdir -p dts_output
           find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} ./ \;
+
           for f in *.dtb; do
             [ -f "$f" ] && dtc -I dtb -O dts -o "dts_output/${f}.dts" "$f"
           done
+
           [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img ./
           [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img ./
           cp out/arch/arm64/boot/Image ./
+
           zip -r "$ZIP_NAME" Image *.dtb *.img dts_output/
           echo "FINAL_ZIP=$ZIP_NAME" >> $GITHUB_ENV
         fi
