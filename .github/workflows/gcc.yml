@@ -41,8 +41,13 @@ jobs:
         mkdir -p tc
         wget -q "https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz" -O gcc.xz
         tar -xf gcc.xz -C tc
-        TC_BIN=$(dirname "$(find tc -type f -name 'aarch64-elf-gcc' | head -1)")
+        find tc -maxdepth 4
+        TC_GCC=$(find tc -type f -name '*aarch64*gcc' | head -1)
+        [ -z "$TC_GCC" ] && { echo "toolchain gcc not found after extract"; exit 1; }
+        TC_BIN=$(dirname "$TC_GCC")
+        echo "TC_BIN=$TC_BIN"
         export PATH="$TC_BIN:$PATH"
+        "$TC_GCC" --version
 
         curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
 
