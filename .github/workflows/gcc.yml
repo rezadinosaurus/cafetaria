@@ -32,20 +32,30 @@ jobs:
 
     - name: Setup and Build
       run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python3 python-is-python3 git wget curl device-tree-compiler zstd xz-utils
+        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip python3 python-is-python3 git wget curl device-tree-compiler zstd
 
         export TZ="Asia/Jakarta"
         BUILD_TIME=$(date +'%H%M-%d%m%y')
         echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
 
         mkdir -p tc
-        wget -qO- https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz | tar -xJ -C tc
+        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/30082026/eva-gcc-arm64-30082026.xz" -O gcc.xz
+
+        echo "== checking downloaded file =="
+        file gcc.xz
+        ls -lh gcc.xz
+
+        tar -xf gcc.xz -C tc
+
+        echo "== toolchain bin contents =="
+        ls tc/bin
+
         export PATH=$PWD/tc/bin:$PATH
 
         curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
 
         export ARCH=arm64
-        ARGS="O=out ARCH=arm64 CC=aarch64-elf-gcc LD=aarch64-elf-ld.bfd AR=aarch64-elf-ar NM=aarch64-elf-nm STRIP=aarch64-elf-strip OBJCOPY=aarch64-elf-objcopy OBJDUMP=aarch64-elf-objdump CROSS_COMPILE=aarch64-elf- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
+        ARGS="O=out ARCH=arm64 CROSS_COMPILE=aarch64-elf- CROSS_COMPILE_ARM32=arm-eabi-"
 
         make $ARGS ${{ github.event.inputs.defconfig }}
         make -j$(nproc) $ARGS dtbs dtboimage || true
