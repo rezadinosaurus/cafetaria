@@ -29,7 +29,7 @@ jobs:
         -d chat_id="${{ env.CHAT_ID }}" \
         -d text="rebuild defconfig starting sayangg: ${{ github.event.inputs.repository }} [${{ github.event.inputs.branch }}] -> ${{ github.event.inputs.defconfig }}"
 
-    - name: Setup toolchain and rebuild defconfig
+    - name: Setup toolchain and generate config
       run: |
         sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl
 
@@ -49,21 +49,20 @@ jobs:
         ARGS="O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi-"
 
         make $ARGS ${{ github.event.inputs.defconfig }}
-        make $ARGS savedefconfig
 
-        OUT_NAME="$(basename ${{ github.event.inputs.defconfig }})-$BUILD_TIME"
-        cp out/defconfig "$OUT_NAME"
+        OUT_NAME="config-$(basename ${{ github.event.inputs.defconfig }})-$BUILD_TIME"
+        cp out/.config "$OUT_NAME"
         echo "DEFCONFIG_OUT=$OUT_NAME" >> $GITHUB_ENV
 
     - name: Upload Artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: defconfig-${{ env.BUILD_TIME }}
+        name: config-${{ env.BUILD_TIME }}
         path: ${{ env.DEFCONFIG_OUT }}
         retention-days: 1
 
     - name: Telegram Notification
       if: always()
       run: |
-        [ -f "${{ env.DEFCONFIG_OUT }}" ] && curl -s -F document=@"${{ env.DEFCONFIG_OUT }}" "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendDocument" -F chat_id="${{ env.CHAT_ID }}" -F caption="rebuilt defconfig sayangg!!!"
+        [ -f "${{ env.DEFCONFIG_OUT }}" ] && curl -s -F document=@"${{ env.DEFCONFIG_OUT }}" "https://api.telegram.org/
