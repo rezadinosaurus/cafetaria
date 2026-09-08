@@ -19,16 +19,16 @@ jobs:
 
     - name: Setup
       run: |
-        sudo apt-get update && sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python3 python-is-python3 wget
+        sudo apt-get update && sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev bc gcc-arm-linux-gnueabi python3 python-is-python3 wget
 
         mkdir -p tc
-        wget -qO- https://github.com/moonooen/AOSP20/releases/download/v1.0/clang-r547379-qssi.tar.gz | tar -xz -C tc
+        wget -qO- https://github.com/mvaisakh/gcc-build/releases/download/06092026/eva-gcc-arm64-06092026.xz | tar -xJ -C tc --strip-components=1
 
     - name: Build DTB/DTBO
       run: |
         export PATH=$PWD/tc/bin:$PATH
         export ARCH=arm64
-        ARGS="O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm STRIP=llvm-strip OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1"
+        ARGS="O=out ARCH=arm64 CC=aarch64-elf-gcc LD=aarch64-elf-ld.lld AR=aarch64-elf-gcc-ar NM=aarch64-elf-gcc-nm STRIP=aarch64-elf-strip OBJCOPY=aarch64-elf-objcopy OBJDUMP=aarch64-elf-objdump CROSS_COMPILE=aarch64-elf- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
 
         make $ARGS ${{ github.event.inputs.defconfig }}
         make -j$(nproc) $ARGS dtbs dtbo.img
