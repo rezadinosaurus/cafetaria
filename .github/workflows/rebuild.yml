@@ -1,0 +1,161 @@
+name: GCC Generate defconfig
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Kernel repository"
+        required: true
+        default: "rezadinosaurus/butterflies_xiaomi_sm8250"
+      branch:
+        description: "Kernel branch"
+        required: true
+        default: "lineage-latte"
+      defconfig:
+        description: "Defconfig to generate (vendor/alioth_defconfig)"
+        required: true
+        default: "vendor/alioth_defconfig"
+
+env:
+  KBUILD_BUILD_USER: "lloromannic"
+  KBUILD_BUILD_HOST: "stargaze"
+
+jobs:
+  defconfig:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository }}
+          ref: ${{ github.event.inputs.branch }}
+          submodules: recursive
+
+      - name: Setup build dependencies and Eva GCC
+        shell: bash
+        run: |
+          set -e
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            bc \
+            gcc-arm-linux-gnueabi \
+            python3 \
+            python-is-python3 \
+            git \
+            wget \
+            curl \
+            device-tree-compiler \
+            zstd \
+            xz-utils
+
+          export TZ="Asia/Jakarta"
+
+          mkdir -p tc/gcc
+          wget -q \
+            "https://github.com/mvaisakh/gcc-build/releases/download/01102026/eva-gcc-arm64-01102026.xz" \
+            -O tc/gcc.tar.xz
+
+          tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
+
+          echo "$GITHUB_WORKSPACE/tc/gcc/bin" >> "$GITHUB_PATH"
+
+          GCC_PREFIX="$(find "$GITHUB_WORKSPACE/tc/gcc/bin" -maxdepth 1 -type f -name '*-gcc' \
+            | head -n1 | sed 's#.*/##; s/gcc$//')"
+
+          if [ -z "$GCC_PREFIX" ]; then
+            echo "ERROR: GCC compiler was not found."
+            exit 1
+          fi
+
+          echo "GCC_PREFIX=$GCC_PREFIX" >> "$GITHUB_ENV"
+          echo "Detected GCC prefix: $GCC_PREFIX"
+
+          "${GCC_PREFIX}gcc" --version | head -n1
+
+      - name: Generate defconfig
+        shell: bash
+        run: |
+          set -e
+
+          chmod +x scripts/update_defconfig
+
+          DEVICE="$(basename "${{ github.event.inputs.defconfig }}" _defconfig)"
+
+          case "$DEVICE" in
+            alioth|apollo|cas|cmi|dagu|elish|enuma|lmi|munch|umi|thyme|psyche)
+              ;;
+            *)
+              echo "ERROR: Unsupported device: $DEVICE"
+              exit 1
+              ;;
+          esac
+
+          echo "Generating: ${{ github.event.inputs.defconfig }}"
+          echo "Device: $DEVICE"
+          echo "GCC: ${GCC_PREFIX}gcc"
+
+          ./scripts/update_defconfig "$DEVICE"
+
+          test -f "arch/arm64/configs/${DEVICE}_defconfig"
+
+          echo
+          echo "Generated defconfig:"
+          ls -lh "arch/arm64/configs/${DEVICE}_defconfig"
+
+      - name: Verify generated defconfig
+        shell: bash
+        run: |
+          set -e
+
+          DEVICE="$(basename "${{ github.event.inputs.defconfig }}" _defconfig)"
+
+          rm -rf verify-out
+
+          make \
+            O=verify-out \
+            ARCH=arm64 \
+            CROSS_COMPILE="${GCC_PREFIX}" \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            KCFLAGS=-Wno-error \
+            "${{ github.event.inputs.defconfig }}"
+
+          echo
+          echo "Defconfig verification succeeded."
+
+      - name: Show defconfig diff
+        shell: bash
+        run: |
+          git diff -- \
+            "arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+
+      - name: Package generated defconfig
+        shell: bash
+        run: |
+          set -e
+
+          DEVICE="$(basename "${{ github.event.inputs.defconfig }}" _defconfig)"
+          ZIP_NAME="defconfig-${DEVICE}.zip"
+
+          zip -j "$ZIP_NAME" \
+            "arch/arm64/configs/${DEVICE}_defconfig"
+
+          echo "DEFCONFIG_ZIP=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload defconfig artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Defconfig-${{ github.event.inputs.defconfig }}
+          path: |
+            arch/arm64/configs/${{ github.event.inputs.defconfig }}
+            ${{ env.DEFCONFIG_ZIP }}
+          retention-days: 7
+          
