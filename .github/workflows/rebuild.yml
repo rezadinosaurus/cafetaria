@@ -7,6 +7,7 @@ on:
         description: "Kernel repository"
         required: true
         default: "rezadinosaurus/butterflies_xiaomi_sm8250"
+
       branch:
         description: "Kernel branch"
         required: true
@@ -28,11 +29,13 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
           submodules: recursive
 
-      - name: Install build dependencies
+      - name: Install dependencies
         shell: bash
         run: |
           set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             libncurses-dev \
@@ -57,43 +60,82 @@ jobs:
         run: |
           set -e
 
-          mkdir -p "$GITHUB_WORKSPACE/tc/gcc"
+          GCC_DIR="$GITHUB_WORKSPACE/tc/gcc"
+
+          mkdir -p "$GCC_DIR"
 
           wget -q \
             "https://github.com/mvaisakh/gcc-build/releases/download/01102026/eva-gcc-arm64-01102026.xz" \
-            -O "$GITHUB_WORKSPACE/tc/gcc.tar.xz"
+            -O "$GITHUB_WORKSPACE/eva-gcc.tar.xz"
 
-          tar -xf "$GITHUB_WORKSPACE/tc/gcc.tar.xz" \
-            -C "$GITHUB_WORKSPACE/tc/gcc" \
+          tar -xf "$GITHUB_WORKSPACE/eva-gcc.tar.xz" \
+            -C "$GCC_DIR" \
             --strip-components=1
 
-          echo "$GITHUB_WORKSPACE/tc/gcc/bin" >> "$GITHUB_PATH"
+          echo "========== GCC files =========="
 
-          GCC_PREFIX="$(find "$GITHUB_WORKSPACE/tc/gcc/bin" \
-            -maxdepth 1 -type f -name '*-gcc' \
-            | head -n1 \
-            | sed 's#.*/##; s/gcc$//')"
+          find "$GCC_DIR/bin" \
+            -maxdepth 1 \
+            -type f \
+            | sort
 
-          if [ -z "$GCC_PREFIX" ]; then
-            echo "ERROR: Eva GCC was not found."
+          echo "================================"
+
+          GCC_BIN="$(
+            find "$GCC_DIR/bin" \
+              -maxdepth 1 \
+              -type f \
+              -name 'aarch64-*-gcc' \
+              | head -n1
+          )"
+
+          if [ -z "$GCC_BIN" ]; then
+            echo "ERROR: Eva GCC compiler not found."
+
+            echo
+            echo "Contents of GCC directory:"
+            find "$GCC_DIR" -maxdepth 3 -type f | sort | head -200
+
             exit 1
           fi
 
+          GCC_PREFIX="${GCC_BIN%gcc}"
+
+          # Make GCC available immediately in THIS step.
+          export PATH="$GCC_DIR/bin:$PATH"
+
+          # Also make it available to all following GitHub Actions steps.
+          echo "$GCC_DIR/bin" >> "$GITHUB_PATH"
+
+          echo "GCC_DIR=$GCC_DIR" >> "$GITHUB_ENV"
           echo "GCC_PREFIX=$GCC_PREFIX" >> "$GITHUB_ENV"
 
-          echo "Detected GCC:"
-          "${GCC_PREFIX}gcc" --version | head -n1
+          echo
+          echo "========== Detected GCC =========="
+          echo "GCC_BIN:"
+          echo "$GCC_BIN"
+          echo
+          echo "GCC_PREFIX:"
+          echo "$GCC_PREFIX"
+          echo
+          echo "GCC version:"
+          "$GCC_BIN" --version | head -n1
+          echo "=================================="
 
       - name: Generate all defconfigs
         shell: bash
         run: |
           set -e
 
+          echo "GCC_PREFIX=$GCC_PREFIX"
+
+          "${GCC_PREFIX}gcc" --version | head -n1
+
           chmod +x scripts/update_defconfig
 
           ./scripts/update_defconfig all
 
-      - name: Verify all generated defconfigs
+      - name: Verify generated defconfigs
         shell: bash
         run: |
           set -e
@@ -114,44 +156,59 @@ jobs:
           "
 
           for DEVICE in $DEVICES; do
+
+            echo
             echo "=========================================="
-            echo "Verifying $DEVICE"
+            echo "Verifying: $DEVICE"
             echo "=========================================="
 
-            test -f "arch/arm64/configs/${DEVICE}_defconfig"
+            DEFCONFIG="arch/arm64/configs/${DEVICE}_defconfig"
+
+            test -f "$DEFCONFIG"
 
             rm -rf "verify-$DEVICE"
 
             make \
               O="verify-$DEVICE" \
               ARCH=arm64 \
-              CROSS_COMPILE="${GCC_PREFIX}" \
-              CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-              CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-              KCFLAGS=-Wno-error \
-              "${DEVICE}_defconfig" || \
-              make \
-                O="verify-$DEVICE" \
-                ARCH=arm64 \
-                CROSS_COMPILE="${GCC_PREFIX}" \
-                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-                CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-                KCFLAGS=-Wno-error \
-                "vendor/${DEVICE}_defconfig"
+              CROSS_COMPILE="$GCC_PREFIX" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+              CROSS_COMPILE_COMPAT="arm-linux-gnueabi-" \
+              KCFLAGS="-Wno-error" \
+              "${DEVICE}_defconfig" \
+              || \
+            make \
+              O="verify-$DEVICE" \
+              ARCH=arm64 \
+              CROSS_COMPILE="$GCC_PREFIX" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+              CROSS_COMPILE_COMPAT="arm-linux-gnueabi-" \
+              KCFLAGS="-Wno-error" \
+              "vendor/${DEVICE}_defconfig"
 
             rm -rf "verify-$DEVICE"
+
+            echo "OK: $DEFCONFIG"
+
           done
 
           echo
-          echo "All defconfigs verified successfully."
+          echo "=========================================="
+          echo "ALL DEFCONFIGS VERIFIED SUCCESSFULLY"
+          echo "=========================================="
 
-      - name: Show generated defconfig diff
+      - name: Show defconfig changes
         shell: bash
         run: |
+          git status --short
+
+          echo
+          echo "========== DEFCONFIG DIFF =========="
+
           git diff -- \
             arch/arm64/configs
 
-      - name: Package all generated defconfigs
+      - name: Package all defconfigs
         shell: bash
         run: |
           set -e
@@ -174,20 +231,28 @@ jobs:
           "
 
           for DEVICE in $DEVICES; do
+
             cp \
               "arch/arm64/configs/${DEVICE}_defconfig" \
               "defconfig-output/${DEVICE}_defconfig"
+
           done
 
-          zip -r defconfigs-all.zip defconfig-output
+          cd defconfig-output
 
-      - name: Upload all defconfigs
+          zip -r ../defconfigs-all.zip .
+
+          cd ..
+
+          echo
+          echo "Generated:"
+          ls -lh defconfigs-all.zip
+
+      - name: Upload defconfigs
         uses: actions/upload-artifact@v4
         with:
           name: all-generated-defconfigs
           path: |
             defconfigs-all.zip
             defconfig-output/
-            arch/arm64/configs/*_defconfig
           retention-days: 7
-          
