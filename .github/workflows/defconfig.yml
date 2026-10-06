@@ -11,17 +11,6 @@ on:
         type: choice
         default: alioth
         options: [alioth, apollo, cas, cmi, dagu, elish, enuma, lmi, munch, psyche, thyme, umi, all]
-      mode:
-        description: 'merge = dari kona-perf + fragment, resave = savedefconfig dari defconfig yang ada'
-        required: true
-        type: choice
-        default: resave
-        options: [resave, merge]
-      kernelsu_branch: { description: 'KSU Branch', required: false, default: 'master' }
-      push: { description: 'Commit & push hasilnya ke branch', required: true, type: boolean, default: false }
-
-permissions:
-  contents: write
 
 jobs:
   rebuild:
@@ -31,12 +20,10 @@ jobs:
       with:
         repository: ${{ github.event.inputs.repository }}
         ref: ${{ github.event.inputs.branch }}
-        submodules: recursive
-        token: ${{ secrets.GH_PAT || github.token }}
 
     - name: Setup Toolchain
       run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc gcc-arm-linux-gnueabi python3 python-is-python3 git wget curl xz-utils
+        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc gcc-arm-linux-gnueabi python3 python-is-python3 wget xz-utils
 
         mkdir -p tc/gcc
         wget -q "https://github.com/mvaisakh/gcc-build/releases/download/01102026/eva-gcc-arm64-01102026.xz" -O tc/gcc.tar.xz
@@ -47,31 +34,21 @@ jobs:
         echo "Detected GCC prefix: $GCC_PREFIX"
         echo "GCC_PREFIX=$GCC_PREFIX" >> $GITHUB_ENV
 
-    - name: Setup KernelSU
-      run: |
-        curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
-
     - name: Rebuild Defconfig
       run: |
         set -eo pipefail
         export ARCH=arm64
         export CROSS_COMPILE=${GCC_PREFIX}
 
-        KERNEL_CFG=arch/arm64/configs/vendor/xiaomi
         OUT_DIR=$PWD/temp
-        SOC=kona
-        MODE="${{ github.event.inputs.mode }}"
         DEVICE_INPUT="${{ github.event.inputs.device }}"
         ALL_DEVICES="alioth apollo cas cmi dagu elish enuma lmi munch psyche thyme umi"
 
         if [ "$DEVICE_INPUT" = "all" ]; then
           TARGETS="$ALL_DEVICES"
-          COMMIT_SUBJECT="ARM64: configs: xiaomi: regenerate defconfig for all devices"
         else
           TARGETS="$DEVICE_INPUT"
-          COMMIT_SUBJECT="ARM64: configs: ${DEVICE_INPUT}: regenerate defconfig"
         fi
-        echo "COMMIT_SUBJECT=$COMMIT_SUBJECT" >> $GITHUB_ENV
 
         mkdir -p defconfig_output
 
@@ -79,28 +56,14 @@ jobs:
           rm -rf "$OUT_DIR"
           mkdir -p "$OUT_DIR"
 
-          echo "Device -> ${device} :: Mode -> ${MODE}"
-          if [ "$MODE" = "merge" ]; then
-            scripts/kconfig/merge_config.sh \
-              -O "$OUT_DIR" \
-              ${KERNEL_CFG}/../${SOC}-perf_defconfig \
-              ${KERNEL_CFG}/sm8250-common.config \
-              ${KERNEL_CFG}/${device}.config
-          else
-            make O="$OUT_DIR" ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} ${device}_defconfig
-          fi
-
+          make O="$OUT_DIR" ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} ${device}_defconfig
           make O="$OUT_DIR" ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} savedefconfig
           mv "$OUT_DIR/defconfig" arch/arm64/configs/${device}_defconfig
           cp arch/arm64/configs/${device}_defconfig defconfig_output/
         done
 
         rm -rf "$OUT_DIR"
-
-        {
-          echo "$COMMIT_SUBJECT"
-          git diff --stat -- 'arch/arm64/configs/*_defconfig'
-        } | tee -a $GITHUB_STEP_SUMMARY
+        git diff --stat -- 'arch/arm64/configs/*_defconfig' | tee -a $GITHUB_STEP_SUMMARY
 
     - name: Upload Defconfig
       uses: actions/upload-artifact@v4
@@ -108,17 +71,4 @@ jobs:
         name: defconfig-${{ github.event.inputs.device }}
         path: defconfig_output/
         retention-days: 7
-
-    - name: Commit and Push
-      if: ${{ github.event.inputs.push == 'true' }}
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add arch/arm64/configs/*_defconfig
-        if git diff --cached --quiet; then
-          echo "No changes"
-        else
-          git commit -m "$COMMIT_SUBJECT" -m "This update is generated automatically by the rebuild defconfig workflow"
-          git push
-        fi
         
