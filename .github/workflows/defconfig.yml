@@ -40,7 +40,6 @@ jobs:
         export ARCH=arm64
         export CROSS_COMPILE=${GCC_PREFIX}
 
-        OUT_DIR=$PWD/temp
         DEVICE_INPUT="${{ github.event.inputs.device }}"
         ALL_DEVICES="alioth apollo cas cmi dagu elish enuma lmi munch psyche thyme umi"
 
@@ -53,17 +52,16 @@ jobs:
         mkdir -p defconfig_output
 
         for device in $TARGETS; do
+          OUT_DIR=$PWD/temp_${device}
           rm -rf "$OUT_DIR"
           mkdir -p "$OUT_DIR"
 
           make O="$OUT_DIR" ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} ${device}_defconfig
-          make O="$OUT_DIR" ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} savedefconfig
-          mv "$OUT_DIR/defconfig" arch/arm64/configs/${device}_defconfig
-          cp arch/arm64/configs/${device}_defconfig defconfig_output/
+          cp "$OUT_DIR/.config" defconfig_output/${device}.config
+          rm -rf "$OUT_DIR"
         done
 
-        rm -rf "$OUT_DIR"
-        git diff --stat -- 'arch/arm64/configs/*_defconfig' | tee -a $GITHUB_STEP_SUMMARY
+        head -n 15 defconfig_output/*.config | tee -a $GITHUB_STEP_SUMMARY
 
     - name: Upload Defconfig
       uses: actions/upload-artifact@v4
