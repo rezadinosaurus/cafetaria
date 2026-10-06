@@ -6,7 +6,7 @@ on:
       repository:
         description: "Kernel repository"
         required: true
-        default: "rezadinosaurus/butterflies_xiaomi_sm8250"
+        default: "rezadinosaurus/android_kernel_qcom_sm8250"
 
       branch:
         description: "Kernel branch"
