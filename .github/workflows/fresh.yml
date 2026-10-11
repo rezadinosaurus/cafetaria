@@ -1,0 +1,58 @@
+name: rebuild defconfig
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: { description: 'Repo', required: true, default: 'rezadinosaurus/android_kernel_qcom_sm8250' }
+      branch: { description: 'Branch', required: true, default: 'lineage-latte' }
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.inputs.repository }}
+        ref: ${{ github.event.inputs.branch }}
+
+    - name: Setup Toolchain
+      run: |
+        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc python3 wget xz-utils
+
+        mkdir -p tc/gcc
+        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/01102026/eva-gcc-arm64-01102026.xz" -O tc/gcc.tar.xz
+        tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
+        echo "$PWD/tc/gcc/bin" >> $GITHUB_PATH
+
+        GCC_PREFIX=$(find $PWD/tc/gcc/bin -name '*-gcc' | head -n1 | sed 's/.*\///;s/gcc$//')
+        echo "GCC_PREFIX=$GCC_PREFIX" >> $GITHUB_ENV
+
+    - name: Rebuild Defconfig
+      run: |
+        set -eo pipefail
+        export ARCH=arm64
+        export CROSS_COMPILE=${GCC_PREFIX}
+
+        OLD=arch/arm64/configs/vendor/alioth_defconfig
+        OUT_DIR=$PWD/out
+
+        make O="$OUT_DIR" vendor/alioth_defconfig
+        make O="$OUT_DIR" savedefconfig
+
+        mkdir -p defconfig_output
+        cp "$OUT_DIR/defconfig" defconfig_output/alioth_defconfig
+
+        {
+          echo "Old: $(wc -l < "$OLD") lines"
+          echo "New: $(wc -l < defconfig_output/alioth_defconfig) lines"
+          echo '```diff'
+          diff "$OLD" defconfig_output/alioth_defconfig || true
+          echo '```'
+        } >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload Defconfig
+      uses: actions/upload-artifact@v4
+      with:
+        name: alioth_defconfig
+        path: defconfig_output/alioth_defconfig
+        retention-days: 1
