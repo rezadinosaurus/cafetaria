@@ -1,4 +1,4 @@
-name: rebuild defconfig
+name: rebuild fresh defconfig
 
 on:
   workflow_dispatch:
