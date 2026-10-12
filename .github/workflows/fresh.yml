@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       repository: { description: 'Repo', required: true, default: 'rezadinosaurus/android_kernel_qcom_sm8250' }
-      branch: { description: 'Branch', required: true, default: 'lineage-mocca' }
+      branch: { description: 'Branch', required: true, default: 'lineage-latte' }
 
 jobs:
   rebuild:
@@ -38,16 +38,6 @@ jobs:
 
         echo "Old: $(wc -l < arch/arm64/configs/vendor/alioth_defconfig) lines" >> $GITHUB_STEP_SUMMARY
         echo "New: $(wc -l < defconfig_output/alioth_defconfig) lines" >> $GITHUB_STEP_SUMMARY
-
-    - name: Send to Telegram
-      env:
-        TG_TOKEN: ${{ secrets.TG_TOKEN }}
-        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-      run: |
-        curl -sf -F chat_id="$TG_CHAT_ID" \
-          -F document=@defconfig_output/alioth_defconfig \
-          -F caption="alioth_defconfig (${{ github.event.inputs.branch }})" \
-          "https://api.telegram.org/bot${TG_TOKEN}/sendDocument"
 
     - name: Upload Defconfig
       uses: actions/upload-artifact@v4
