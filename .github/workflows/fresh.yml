@@ -30,20 +30,24 @@ jobs:
     - name: Rebuild Defconfig
       run: |
         set -eo pipefail
-        export ARCH=arm64
-        export CROSS_COMPILE=${GCC_PREFIX}
 
-        OLD=arch/arm64/configs/vendor/alioth_defconfig
-        OUT_DIR=$PWD/out
-
-        make O="$OUT_DIR" vendor/alioth_defconfig
-        make O="$OUT_DIR" savedefconfig
+        make O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} vendor/alioth_defconfig
 
         mkdir -p defconfig_output
-        cp "$OUT_DIR/defconfig" defconfig_output/alioth_defconfig
+        cp out/.config defconfig_output/alioth_defconfig
 
-        echo "Old: $(wc -l < "$OLD") lines" >> $GITHUB_STEP_SUMMARY
+        echo "Old: $(wc -l < arch/arm64/configs/vendor/alioth_defconfig) lines" >> $GITHUB_STEP_SUMMARY
         echo "New: $(wc -l < defconfig_output/alioth_defconfig) lines" >> $GITHUB_STEP_SUMMARY
+
+    - name: Send to Telegram
+      env:
+        TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      run: |
+        curl -sf -F chat_id="$TG_CHAT_ID" \
+          -F document=@defconfig_output/alioth_defconfig \
+          -F caption="alioth_defconfig (${{ github.event.inputs.branch }})" \
+          "https://api.telegram.org/bot${TG_TOKEN}/sendDocument"
 
     - name: Upload Defconfig
       uses: actions/upload-artifact@v4
